@@ -1,0 +1,16 @@
+/.venv
+/chroma_db
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.env
+*.log
+.pytest_cache/
+.coverage
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
