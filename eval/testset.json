@@ -7,6 +7,6 @@
   {"question": "Who has to approve expense claims over 50,000 JPY?", "reference": "Claims over 50,000 JPY need director approval.", "source": "expense-policy.md"},
   {"question": "How often are passwords rotated and what is the minimum length?", "reference": "Passwords must be at least 14 characters and are rotated every 180 days.", "source": "security-policy.md"},
   {"question": "My laptop was stolen. How quickly do I have to tell IT?", "reference": "Lost devices must be reported to IT within 2 hours.", "source": "security-policy.md"},
-  {"question": "耳栓が必要になるのは騒音が何dBを超えるエリアですか？", "reference": "騒音が85dBを超えるエリアで耳栓が必要です。", "source": "安全衛生規程.md"},
-  {"question": "ヒヤリハットが発生したら、いつまでに報告書を提出しますか？", "reference": "直ちに上長へ報告し、24時間以内に報告書を提出します。", "source": "安全衛生規程.md"}
+  {"question": "耳栓が必要になるのは騒音が何dBを超えるエリアですか？", "reference": "騒音が85dBを超えるエリアで耳栓が必要です。", "source": "safety-policy-ja.md"},
+  {"question": "ヒヤリハットが発生したら、いつまでに報告書を提出しますか？", "reference": "直ちに上長へ報告し、24時間以内に報告書を提出します。", "source": "safety-policy-ja.md"}
 ]

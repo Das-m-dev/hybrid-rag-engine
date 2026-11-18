@@ -5,16 +5,18 @@ import rag
 MODES = ["hybrid", "vector", "keyword"]
 
 def retrieval_report(items, modes, k):
-    out = {}
+    out, misses = {}, {}
     for mode in modes:
-        hits, rr = 0, 0.0
+        hits, rr, misses[mode] = 0, 0.0, []
         for it in items:
             srcs = [h["source"] for h in rag.retrieve(it["question"], k, mode)]
             if it["source"] in srcs:
                 hits += 1
                 rr += 1 / (srcs.index(it["source"]) + 1)
+            else:
+                misses[mode].append({"question": it["question"], "expected": it["source"], "got": sorted(set(srcs))})
         out[mode] = {f"hit@{k}": round(hits / len(items), 3), "mrr": round(rr / len(items), 3)}
-    return out
+    return out, misses
 
 def make_judge():
     """Local Ollama model as RAGAS judge + bge-m3 for answer-relevancy embeddings."""
@@ -56,17 +58,24 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="only the first N questions (smoke test)")
     a = ap.parse_args()
 
-    items = json.loads(pathlib.Path(a.testset).read_text(encoding="utf-8"))
+    items = json.loads(pathlib.Path(a.testset).read_text(encoding="utf-8-sig"))
     items = items[:a.limit] if a.limit else items
     if rag.collection().count() == 0:
         raise SystemExit("Index is empty. Run: python ingest.py <folder>")
     out_dir = pathlib.Path("eval/results"); out_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    report = {"questions": len(items), "k": a.k, "retrieval": retrieval_report(items, a.modes, a.k), "ragas": {}}
+    retrieval, misses = retrieval_report(items, a.modes, a.k)
+    report = {"questions": len(items), "k": a.k, "retrieval": retrieval, "misses": misses, "ragas": {}}
 
-    print(f"\nRetrieval ({len(items)} questions, k={a.k})")
-    for mode, r in report["retrieval"].items():
+    metas = rag.collection().get(include=["metadatas"])["metadatas"]
+    files = sorted({m["source"] for m in metas})
+    print(f"\nIndex: {len(metas)} chunks from {len(files)} files" + (": " + ", ".join(files) if len(files) <= 12 else ""))
+    print(f"Retrieval ({len(items)} questions, k={a.k})")
+    for mode, r in retrieval.items():
         print(f"  {mode:8} " + "  ".join(f"{n}={v}" for n, v in r.items()))
+    for mode, ms in misses.items():
+        for m in ms:
+            print(f"  miss [{mode}] {m['question'][:45]}  expected={m['expected']}  got={m['got']}")
 
     if not a.skip_ragas:
         llm, emb = make_judge()
