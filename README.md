@@ -36,3 +36,12 @@ python evaluate.py --ragas-modes hybrid vector   # full run, compare modes
 ```
 Edit `eval/testset.json` (question, reference answer, expected source file) for your own documents.
 Set `JUDGE_MODEL` to use a different Ollama model as the judge. Results go to `eval/results/`.
+
+## Knowledge base Q&A + evaluation dashboard
+```bash
+uvicorn app:app --port 8000
+```
+- `http://localhost:8000` — Q&A page. Each answer has 👍 / 👎; every question is logged to `usage.db` (SQLite, path via `USAGE_DB`).
+- `http://localhost:8000/dashboard` — indexed size, questions asked, average response time, helpful rate; retrieval quality per search mode (hit@k, MRR, trend, missed questions); RAGAS scores with "scored n/N" so judge failures are visible; recent questions with feedback.
+- "Run retrieval check" on the dashboard runs the instant LLM-free evaluation. RAGAS is slow on CPU, so run it in a terminal (`python evaluate.py --limit 3`) and refresh the dashboard.
+- The dashboard has no login. For a shared internal deployment, put it behind your company's reverse proxy or SSO. Do not commit `usage.db`.
