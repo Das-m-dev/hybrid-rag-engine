@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Evaluation dashboard</title>
+<style>
+:root{--bg:#f6f7f5;--fg:#1d2420;--mut:#5d6a63;--card:#fff;--line:#d9dfdb;--acc:#1f6f5c;--good:#1f7a4d;--warn:#a86a00;--bad:#b3261e;--track:#e7ebe8;--blue:#3d63b8}
+@media(prefers-color-scheme:dark){:root{--bg:#141a17;--fg:#e6ebe8;--mut:#93a39a;--card:#1c2420;--line:#2b3631;--acc:#5fc4a8;--good:#6fd3a0;--warn:#e0a84a;--bad:#f2837c;--track:#2b3631;--blue:#8fb0f0}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:980px;margin:0 auto;padding:28px 20px 64px}a{color:var(--acc)}
+header{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+h1{font-size:1.35rem;margin:0}h2{font-size:1.05rem;margin:0}.mut{color:var(--mut)}p{margin:6px 0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:20px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px}
+.kpi b{display:block;font-size:1.6rem;line-height:1.25}.kpi span{font-size:.82rem;color:var(--mut)}
+.head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+button{font:inherit;padding:6px 14px;border:0;border-radius:8px;background:var(--acc);color:#fff;cursor:pointer}
+button:disabled{opacity:.5}:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.grp{margin:14px 0 6px}
+.bar{display:grid;grid-template-columns:140px 1fr 44px auto;gap:10px;align-items:center;margin:5px 0}
+.track{height:10px;background:var(--track);border-radius:5px;overflow:hidden}
+.fill{height:100%;border-radius:5px;background:var(--mut)}.fill.good{background:var(--good)}.fill.warn{background:var(--warn)}.fill.bad{background:var(--bad)}
+.val{font-variant-numeric:tabular-nums;text-align:right}.note{font-size:.82rem;color:var(--mut)}.note.warn{color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:8px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--mut);font-weight:600}
+td.n{font-variant-numeric:tabular-nums;white-space:nowrap}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+details summary{cursor:pointer}details>p{margin:4px 0}.miss li{margin:4px 0}
+svg text{fill:var(--mut);font-size:11px}svg .grid{stroke:var(--line)}svg polyline{fill:none;stroke-width:2}
+.l-hybrid{stroke:var(--acc)}.l-vector{stroke:var(--warn);stroke-dasharray:6 3}.l-keyword{stroke:var(--blue);stroke-dasharray:2 3}
+.legend{display:flex;gap:16px;font-size:.82rem;color:var(--mut)}.legend i{display:inline-block;width:22px;border-top:2px solid;vertical-align:middle;margin-right:6px}
+@media(max-width:600px){.bar{grid-template-columns:100px 1fr 40px}.bar .note{grid-column:1/-1}}
+</style></head><body><main>
+<header><h1>Knowledge base evaluation</h1><a href="/">← Back to Q&amp;A</a></header>
+<div class="kpis" id="kpis"></div>
+
+<section class="card"><div class="head"><h2>Retrieval quality</h2>
+  <span><span class="note" id="msg"></span> <button id="run">Run retrieval check</button></span></div>
+  <p class="note">Does search return the right source file? Runs instantly, no LLM. Uses eval/testset.json.</p>
+  <div id="ret"></div></section>
+
+<section class="card"><h2>Answer quality (RAGAS)</h2>
+  <p class="note">Scored by a local judge model. “scored n/N” shows how many questions the judge could mark; a low count means the mean is unreliable.</p>
+  <div id="rag"></div></section>
+
+<section class="card"><h2>Live usage</h2>
+  <p class="note">Questions asked on the Q&amp;A page. Rows marked 👎 are good candidates to add to eval/testset.json.</p>
+  <div id="use"></div></section>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+const get=u=>fetch(u).then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.detail||r.status);return j});
+const fmt=v=>v==null?"–":(+v).toFixed(2);
+const tone=v=>v==null?"":v>=.8?"good":v>=.5?"warn":"bad";
+const when=id=>id.replace(/(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d)/,"$1-$2-$3 $4:$5:$6");
+const MET={faithfulness:"Faithfulness",answer_relevancy:"Answer relevancy",llm_context_precision_with_reference:"Context precision",context_recall:"Context recall"};
+
+function bar(label,v,extra,warn){const r=el("div","bar");r.append(el("span","",label));
+  const t=el("div","track"),f=el("div","fill "+tone(v));f.style.width=(v==null?0:Math.max(0,Math.min(1,v))*100)+"%";t.append(f);
+  r.append(t,el("span","val "+tone(v),fmt(v)));if(extra)r.append(el("span","note"+(warn?" warn":""),extra));return r}
+
+function kpis(st){const rated=st.up+st.down,box=$("#kpis");box.replaceChildren();
+  [["Indexed passages",st.chunks,`${st.files} files`],["Questions asked",st.questions,"all time"],
+   ["Avg response time",st.avg_ms?(st.avg_ms/1000).toFixed(1)+" s":"–","local model"],
+   ["Helpful rate",rated?Math.round(100*st.up/rated)+"%":"–",`${rated} rated`]].forEach(([l,v,s])=>{
+    const c=el("div","card kpi");c.style.marginBottom=0;c.append(el("span","",l),el("b","",v),el("span","",s));box.append(c)})}
+
+function trend(runs){const rs=runs.slice(-20),W=600,H=130,box=el("div");
+  box.append(el("p","note","MRR per run (1.0 = right document ranked first every time)"));
+  const ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg");svg.setAttribute("viewBox",`0 0 ${W} ${H}`);svg.setAttribute("role","img");
+  svg.setAttribute("aria-label","MRR over evaluation runs");
+  const X=i=>36+i*(W-50)/Math.max(rs.length-1,1),Y=v=>H-22-v*(H-40);
+  [0,.5,1].forEach(v=>{const l=document.createElementNS(ns,"line");l.setAttribute("class","grid");l.setAttribute("x1",36);l.setAttribute("x2",W-10);l.setAttribute("y1",Y(v));l.setAttribute("y2",Y(v));svg.append(l);
+    const t=document.createElementNS(ns,"text");t.setAttribute("x",4);t.setAttribute("y",Y(v)+4);t.textContent=v.toFixed(1);svg.append(t)});
+  ["hybrid","vector","keyword"].forEach(m=>{const pts=rs.map((r,i)=>r.retrieval&&r.retrieval[m]?`${X(i)},${Y(r.retrieval[m].mrr)}`:null).filter(Boolean);
+    if(pts.length){const p=document.createElementNS(ns,"polyline");p.setAttribute("class","l-"+m);p.setAttribute("points",pts.join(" "));svg.append(p)}});
+  box.append(svg);const lg=el("div","legend");["hybrid","vector","keyword"].forEach(m=>{const s=el("span");const i=el("i");i.className="l-"+m;i.style.borderTopColor="currentColor";i.style.color=getComputedStyle(document.documentElement).getPropertyValue(m=="hybrid"?"--acc":m=="vector"?"--warn":"--blue");s.append(i,m);lg.append(s)});
+  box.append(lg);return box}
+
+function retrieval(runs){const box=$("#ret");box.replaceChildren();const run=runs[runs.length-1];
+  if(!run){box.append(el("p","mut","No runs yet. Click “Run retrieval check”."));return}
+  box.append(el("p","note",`Latest run ${when(run.id)} · ${run.questions} questions · k=${run.k}`));
+  for(const [mode,r] of Object.entries(run.retrieval)){const g=el("div","grp");g.append(el("strong","",mode));
+    const hk=Object.keys(r).find(k=>k.startsWith("hit@"));g.append(bar(hk,r[hk]),bar("MRR",r.mrr));box.append(g)}
+  const miss=new Map();for(const [mode,list] of Object.entries(run.misses||{}))list.forEach(m=>{const e=miss.get(m.question)||{...m,modes:[]};e.modes.push(mode);miss.set(m.question,e)});
+  if(miss.size){const d=el("details");d.open=true;d.append(el("summary","",`${miss.size} question(s) missed their expected source`));
+    const ul=el("ul","miss");miss.forEach(m=>ul.append(el("li","",`${m.question} — expected ${m.expected}; got ${m.got.join(", ")||"nothing"} (${m.modes.join(", ")})`)));d.append(ul);box.append(d)}
+  else box.append(el("p","good","No misses in the latest run."));
+  if(runs.length>1)box.append(trend(runs))}
+
+function perQuestion(runId,mode){const d=el("details");d.append(el("summary","","Per-question scores"));let done=false;
+  d.addEventListener("toggle",async()=>{if(!d.open||done)return;done=true;
+    try{const rows=await get(`/api/eval/runs/${runId}/ragas/${mode}`);const t=el("table"),hr=el("tr");
+      ["Question",...Object.values(MET)].forEach(x=>hr.append(el("th","",x)));t.append(hr);
+      rows.forEach(r=>{const tr=el("tr"),td=el("td"),dd=el("details");dd.append(el("summary","",r.question),el("p","note","Answer: "+r.answer),el("p","note","Reference: "+r.reference));td.append(dd);tr.append(td);
+        Object.keys(MET).forEach(k=>{const v=r.scores[k];tr.append(el("td","n "+(v==null?"warn":tone(v)),v==null?"failed":fmt(v)))});t.append(tr)});d.append(t)}
+    catch(e){d.append(el("p","note",String(e.message)))}});return d}
+
+function ragas(runs){const box=$("#rag");box.replaceChildren();const run=[...runs].reverse().find(r=>Object.keys(r.ragas||{}).length);
+  if(!run){box.append(el("p","mut","No RAGAS run yet. In a terminal: python evaluate.py --limit 3 (slow on CPU)."));return}
+  box.append(el("p","note",`Run ${when(run.id)} · ${run.questions} questions`));
+  for(const [mode,sum] of Object.entries(run.ragas)){const g=el("div","grp");g.append(el("strong","",mode));
+    for(const [name,s] of Object.entries(sum)){const ok=run.questions-s.failed;
+      g.append(bar(MET[name]||name,s.mean,`scored ${ok}/${run.questions}`,s.failed>0))}
+    g.append(perQuestion(run.id,mode));box.append(g)}}
+
+function usage(st){const box=$("#use");box.replaceChildren();
+  if(!st.recent.length){box.append(el("p","mut","No questions yet. Ask something on the Q&A page."));return}
+  const t=el("table"),hr=el("tr");["When","Question","Mode","Time","Top source","Feedback"].forEach(x=>hr.append(el("th","",x)));t.append(hr);
+  st.recent.forEach(q=>{const tr=el("tr");[new Date(q.ts*1000).toLocaleString(),q.question,q.mode,(q.latency_ms/1000).toFixed(1)+" s",q.top_source||"–",q.rating===1?"👍":q.rating===-1?"👎":"–"]
+    .forEach((x,i)=>tr.append(el("td",i==3?"n":"",x)));t.append(tr)});box.append(t)}
+
+async function load(){try{const [st,runs]=await Promise.all([get("/api/stats"),get("/api/eval/runs")]);kpis(st);retrieval(runs);ragas(runs);usage(st)}
+  catch(e){$("#kpis").replaceChildren(el("p","bad","Could not load data: "+e.message))}}
+$("#run").onclick=async()=>{const b=$("#run"),m=$("#msg");b.disabled=true;m.textContent="Running…";
+  try{const r=await fetch("/api/eval/retrieval",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    if(!r.ok)throw new Error((await r.json()).detail);m.textContent="";await load()}catch(e){m.textContent=e.message}b.disabled=false};
+load();
+</script></body></html>
